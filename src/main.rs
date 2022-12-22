@@ -4,9 +4,9 @@ mod client;
 pub mod error;
 mod recv_worker;
 
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{BigEndian, WriteBytesExt};
 pub use client::{connect, Sender as Client};
-use num_enum::{TryFromPrimitive, TryFromPrimitiveError};
+use num_enum::TryFromPrimitive;
 use std::{
     io::{self, Write},
     ops,
@@ -19,8 +19,6 @@ pub const UDP_PKT_SIZE: usize = 512;
 pub const NUM_CHANS: usize = 3;
 pub const REL_BUFFER: usize = 0x8000;
 pub const INIT_SEQNUM: u16 = 65500;
-
-pub type Error = error::Error;
 
 pub trait UdpSender: Send + Sync + 'static {
     fn send(&self, data: Vec<u8>) -> io::Result<()>;
@@ -62,6 +60,7 @@ pub struct Pkt<T> {
     data: T,
 }
 
+pub type Error = error::Error;
 pub type InPkt = Result<Pkt<Vec<u8>>, Error>;
 
 #[derive(Debug)]
@@ -87,15 +86,6 @@ pub struct RudpSender<S: UdpSender> {
 }
 
 impl<S: UdpSender> RudpShare<S> {
-    pub fn new(id: u16, remote_id: u16, udp_tx: S) -> Self {
-        Self {
-            id,
-            remote_id,
-            udp_tx,
-            chans: (0..NUM_CHANS).map(|_| AckChan).collect(),
-        }
-    }
-
     pub fn send(&self, tp: PktType, pkt: Pkt<&[u8]>) -> io::Result<()> {
         let mut buf = Vec::with_capacity(4 + 2 + 1 + 1 + pkt.data.len());
         buf.write_u32::<BigEndian>(PROTO_ID)?;
@@ -132,10 +122,15 @@ pub fn new<S: UdpSender, R: UdpReceiver>(
 ) -> (RudpSender<S>, RudpReceiver<S>) {
     let (pkt_tx, pkt_rx) = mpsc::channel();
 
-    let share = Arc::new(RudpShare::new(id, remote_id, udp_tx));
+    let share = Arc::new(RudpShare {
+        id,
+        remote_id,
+        udp_tx,
+        chans: (0..NUM_CHANS).map(|_| AckChan).collect(),
+    });
     let recv_share = Arc::clone(&share);
 
-    thread::spawn(move || {
+    thread::spawn(|| {
         recv_worker::RecvWorker::new(udp_rx, recv_share, pkt_tx).run();
     });
 

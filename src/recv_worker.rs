@@ -1,6 +1,5 @@
-use crate::{error::Error, CtlType, InPkt, Pkt, PktType, RudpShare, UdpReceiver, UdpSender};
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use num_enum::{TryFromPrimitive, TryFromPrimitiveError};
+use crate::{error::Error, *};
+use byteorder::{BigEndian, ReadBytesExt};
 use std::{
     cell::Cell,
     io, result,
@@ -8,7 +7,7 @@ use std::{
 };
 
 fn to_seqnum(seqnum: u16) -> usize {
-    (seqnum as usize) & (crate::REL_BUFFER - 1)
+    (seqnum as usize) & (REL_BUFFER - 1)
 }
 
 struct RelChan {
@@ -36,11 +35,11 @@ impl<R: UdpReceiver, S: UdpSender> RecvWorker<R, S> {
     }
 
     pub fn run(&self) {
-        let mut recv_chans = (0..crate::NUM_CHANS as u8)
+        let mut recv_chans = (0..NUM_CHANS as u8)
             .map(|num| RelChan {
                 num,
-                packets: (0..crate::REL_BUFFER).map(|_| Cell::new(None)).collect(),
-                seqnum: crate::INIT_SEQNUM,
+                packets: (0..REL_BUFFER).map(|_| Cell::new(None)).collect(),
+                seqnum: INIT_SEQNUM,
             })
             .collect();
 
@@ -70,7 +69,7 @@ impl<R: UdpReceiver, S: UdpSender> RecvWorker<R, S> {
         let mut cursor = io::Cursor::new(self.udp_rx.recv()?);
 
         let proto_id = cursor.read_u32::<BigEndian>()?;
-        if proto_id != crate::PROTO_ID {
+        if proto_id != PROTO_ID {
             do yeet InvalidProtoId(proto_id);
         }
 

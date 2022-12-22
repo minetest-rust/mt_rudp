@@ -1,0 +1,8 @@
+[package]
+name = "mt_rudp"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+byteorder = "1.4.3"
+num_enum = "0.5.7"

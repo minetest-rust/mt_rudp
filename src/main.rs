@@ -87,13 +87,6 @@ impl fmt::Display for Error {
 #[derive(Debug)]
 struct Channel {}
 
-#[derive(Debug)]
-struct RecvChannel<'a> {
-    packets: Vec<Option<Vec<u8>>>, // used to be called char **
-    seqnum: u16,
-    chan: &'a Channel,
-}
-
 pub type PktResult = Result<Pkt<Vec<u8>>, Error>;
 type PktSender = mpsc::Sender<PktResult>;
 
@@ -103,6 +96,105 @@ struct ConnInner {
     id: u16,
     remote_id: u16,
     chans: Vec<Channel>,
+}
+
+struct RecvChannel {
+    packets: Vec<Cell<Option<Vec<u8>>>>, // used to be called char **
+    seqnum: u16,
+    num: u8,
+}
+
+struct ConnReceiver {
+    tx: PktSender,
+    inner: Arc<ConnInner>,
+    chans: Vec<RecvChannel>,
+    inbox: [u8; UDP_PKT_SIZE],
+}
+
+impl ConnReceiver {
+    pub fn run(inner: Arc<ConnInner>, tx: PktSender) {
+        Self {
+            tx,
+            inner,
+            chans: (0..NUM_CHANNELS as u8)
+                .map(|num| RecvChannel {
+                    num,
+                    packets: (0..REL_BUFFER).map(|_| Cell::new(None)).collect(),
+                    seqnum: INIT_SEQNUM,
+                })
+                .collect(),
+            inbox: [0; UDP_PKT_SIZE],
+        }
+        .do_loop();
+    }
+
+    fn handle_err(&self, res: Result<(), Error>) -> bool {
+        if let Err(err) = res {
+            if !self.tx.send(Err(err)).is_ok() {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    fn do_loop(&mut self) {
+        while self.handle_err(self.recv_pkt()) {}
+    }
+
+    fn recv_pkt(&mut self) -> Result<(), Error> {
+        use Error::*;
+
+        // todo: reset timeout
+        let len = self.inner.sock.recv(&mut self.inbox)?;
+        let mut cursor = io::Cursor::new(&self.inbox[..len]);
+
+        let proto_id = cursor.read_u32::<BigEndian>()?;
+        if proto_id != PROTO_ID {
+            do yeet InvalidProtoId(proto_id);
+        }
+
+        let peer_id = cursor.read_u16::<BigEndian>()?;
+
+        let n_channel = cursor.read_u8()?;
+        let mut channel = self
+            .chans
+            .get(n_channel as usize)
+            .ok_or(InvalidChannel(n_channel))?;
+
+        self.process_pkt(cursor, channel)
+    }
+
+    fn process_pkt(&self, mut cursor: io::Cursor<&[u8]>, chan: &RecvChannel) -> Result<(), Error> {
+        use PktType::*;
+
+        match cursor.read_u8()?.try_into()? {
+            Ctl => {
+                dbg!(cursor.remaining_slice());
+            }
+            Orig => {
+                self.tx.send(Ok(Pkt {
+                    chan: chan.num,
+                    unrel: true,
+                    data: cursor.remaining_slice().into(),
+                }))?;
+            }
+            Split => {
+                dbg!(cursor.remaining_slice());
+            }
+            Rel => {
+                let seqnum = cursor.read_u16::<BigEndian>()?;
+                chan.packets[seqnum as usize].set(Some(cursor.remaining_slice().into()));
+
+                while let Some(pkt) = chan.packets[chan.seqnum as usize].take() {
+                    self.handle_err(self.process_pkt(io::Cursor::new(&pkt), chan));
+                    chan.seqnum.overflowing_add(1);
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl ConnInner {
@@ -115,86 +207,6 @@ impl ConnInner {
         buf.write(pkt.data)?;
 
         self.sock.send(&buf)?;
-
-        Ok(())
-    }
-
-    fn recv_loop(&self, tx: PktSender) {
-        let mut inbox = [0; UDP_PKT_SIZE];
-
-        let mut recv_chans = self.channels.map(|chan| RecvChannel {
-            chan,
-            packets: (0..REL_BUFFER).map(|_| Cell::new(None)),
-            seqnum: INIT_SEQNUM,
-        });
-
-        loop {
-            if let Err(err) = self.recv_pkt(&mut inbox, &mut recv_chans, &tx) {
-                if !tx.send(Err(err)).is_ok() {
-                    break;
-                }
-            }
-        }
-    }
-
-    fn recv_pkt(
-        &self,
-        buffer: &mut [u8],
-        chans: &mut Vec<RecvChannel>,
-        tx: &PktSender,
-    ) -> Result<(), Error> {
-        use Error::*;
-        use PktType::*;
-
-        // todo: reset timeout
-        let len = self.sock.recv(buffer)?;
-        let mut cursor = io::Cursor::new(&buffer[..len]);
-
-        let proto_id = cursor.read_u32::<BigEndian>()?;
-        if proto_id != PROTO_ID {
-            do yeet InvalidProtoId(proto_id);
-        }
-
-        let peer_id = cursor.read_u16::<BigEndian>()?;
-
-        let n_channel = cursor.read_u8()?;
-        let mut channel = self
-            .chans
-            .get_mut(n_channel as usize)
-            .ok_or(InvalidChannel(n_channel))?;
-
-        self.process_pkt(cursor, channel);
-    }
-
-    fn process_pkt(
-        &self,
-        mut cursor: io::Cursor<&[u8]>,
-        chan: &mut RecvChannel,
-    ) -> Result<(), Error> {
-        match cursor.read_u8()?.try_into()? {
-            Ctl => {
-                dbg!(cursor.remaining_slice());
-            }
-            Orig => {
-                tx.send(Ok(Pkt {
-                    chan: n_channel,
-                    unrel: true,
-                    data: cursor.remaining_slice().into(),
-                }))?;
-            }
-            Split => {
-                dbg!(cursor.remaining_slice());
-            }
-            Rel => {
-                let seqnum = cursor.read_u16::<BigEndian>()?;
-                chan.packets[seqnum].set(cursor.remaining_slice().into());
-
-                while Some(pkt) = chan.packets[chan.seqnum].take() {
-                    self.process_pkt(io::Cursor::new(&pkt), chan)?;
-                    chan.seqnum.overflowing_add(1);
-                }
-            }
-        }
 
         Ok(())
     }
@@ -221,7 +233,7 @@ impl Conn {
 
         let recv_inner = Arc::clone(&inner);
         thread::spawn(move || {
-            recv_inner.recv_loop(tx);
+            ConnReceiver::run(recv_inner, tx);
         });
 
         Ok(Conn { inner, rx })

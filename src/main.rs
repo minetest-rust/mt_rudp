@@ -1,5 +1,6 @@
 #![feature(yeet_expr)]
 #![feature(cursor_remaining)]
+#![feature(hash_drain_filter)]
 mod client;
 pub mod error;
 mod recv_worker;
@@ -19,6 +20,7 @@ pub const UDP_PKT_SIZE: usize = 512;
 pub const NUM_CHANS: usize = 3;
 pub const REL_BUFFER: usize = 0x8000;
 pub const INIT_SEQNUM: u16 = 65500;
+pub const TIMEOUT: u64 = 30;
 
 pub trait UdpSender: Send + Sync + 'static {
     fn send(&self, data: Vec<u8>) -> io::Result<()>;

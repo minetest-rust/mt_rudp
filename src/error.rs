@@ -1,6 +1,7 @@
 use crate::{CtlType, InPkt, PktType};
 use num_enum::TryFromPrimitiveError;
-use std::{fmt, io, sync::mpsc};
+use std::{fmt, io};
+use tokio::sync::mpsc::error::SendError;
 
 #[derive(Debug)]
 pub enum Error {
@@ -32,8 +33,8 @@ impl From<TryFromPrimitiveError<CtlType>> for Error {
     }
 }
 
-impl From<mpsc::SendError<InPkt>> for Error {
-    fn from(_err: mpsc::SendError<InPkt>) -> Self {
+impl From<SendError<InPkt>> for Error {
+    fn from(_err: SendError<InPkt>) -> Self {
         Self::LocalDisco // technically not a disconnect but a local drop
     }
 }

@@ -6,6 +6,7 @@ pub struct Sender {
     sock: Arc<net::UdpSocket>,
 }
 
+#[async_trait]
 impl UdpSender for Sender {
     async fn send(&self, data: Vec<u8>) -> io::Result<()> {
         self.sock.send(&data).await?;
@@ -17,6 +18,7 @@ pub struct Receiver {
     sock: Arc<net::UdpSocket>,
 }
 
+#[async_trait]
 impl UdpReceiver for Receiver {
     async fn recv(&self) -> io::Result<Vec<u8>> {
         let mut buffer = Vec::new();

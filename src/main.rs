@@ -1,11 +1,11 @@
 #![feature(yeet_expr)]
 #![feature(cursor_remaining)]
 #![feature(hash_drain_filter)]
-#![feature(async_fn_in_trait)]
 mod client;
 pub mod error;
 mod recv_worker;
 
+use async_trait::async_trait;
 use byteorder::{BigEndian, WriteBytesExt};
 pub use client::{connect, Sender as Client};
 use num_enum::TryFromPrimitive;
@@ -24,10 +24,12 @@ pub const REL_BUFFER: usize = 0x8000;
 pub const INIT_SEQNUM: u16 = 65500;
 pub const TIMEOUT: u64 = 30;
 
+#[async_trait]
 pub trait UdpSender: Send + Sync + 'static {
     async fn send(&self, data: Vec<u8>) -> io::Result<()>;
 }
 
+#[async_trait]
 pub trait UdpReceiver: Send + Sync + 'static {
     async fn recv(&self) -> io::Result<Vec<u8>>;
 }
@@ -118,6 +120,12 @@ impl<S: UdpSender> ops::Deref for RudpReceiver<S> {
     }
 }
 
+impl<S: UdpSender> ops::DerefMut for RudpReceiver<S> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.pkt_rx
+    }
+}
+
 pub fn new<S: UdpSender, R: UdpReceiver>(
     id: u16,
     remote_id: u16,
@@ -134,7 +142,10 @@ pub fn new<S: UdpSender, R: UdpReceiver>(
     });
     let recv_share = Arc::clone(&share);
 
-    tokio::spawn(async { recv_worker::RecvWorker::new(udp_rx, recv_share, pkt_tx).await });
+    tokio::spawn(async {
+        let worker = recv_worker::RecvWorker::new(udp_rx, recv_share, pkt_tx);
+        worker.run().await;
+    });
 
     (
         RudpSender {
@@ -149,7 +160,7 @@ pub fn new<S: UdpSender, R: UdpReceiver>(
 #[tokio::main]
 async fn main() -> io::Result<()> {
     //println!("{}", x.deep_size_of());
-    let (tx, rx) = connect("127.0.0.1:30000").await?;
+    let (tx, mut rx) = connect("127.0.0.1:30000").await?;
 
     let mut mtpkt = vec![];
     mtpkt.write_u16::<BigEndian>(2)?; // high level type

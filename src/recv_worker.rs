@@ -34,7 +34,7 @@ pub struct RecvWorker<R: UdpReceiver, S: UdpSender> {
 }
 
 impl<R: UdpReceiver, S: UdpSender> RecvWorker<R, S> {
-    pub async fn new(udp_rx: R, share: Arc<RudpShare<S>>, pkt_tx: mpsc::UnboundedSender<InPkt>) {
+    pub fn new(udp_rx: R, share: Arc<RudpShare<S>>, pkt_tx: mpsc::UnboundedSender<InPkt>) -> Self {
         Self {
             udp_rx,
             share,
@@ -52,8 +52,6 @@ impl<R: UdpReceiver, S: UdpSender> RecvWorker<R, S> {
                     .collect(),
             ),
         }
-        .run()
-        .await
     }
 
     pub async fn run(&self) {

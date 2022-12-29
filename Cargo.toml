@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+async-recursion = "1.0.0"
 async-trait = "0.1.60"
 byteorder = "1.4.3"
 num_enum = "0.5.7"

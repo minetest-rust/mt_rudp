@@ -7,10 +7,12 @@ use tokio::sync::mpsc::error::SendError;
 pub enum Error {
     IoError(io::Error),
     InvalidProtoId(u32),
-    InvalidPeerID,
     InvalidChannel(u8),
     InvalidType(u8),
     InvalidCtlType(u8),
+    PeerIDAlreadySet,
+    InvalidChunkIndex(usize, usize),
+    InvalidChunkCount(usize, usize),
     RemoteDisco,
     LocalDisco,
 }
@@ -35,24 +37,26 @@ impl From<TryFromPrimitiveError<CtlType>> for Error {
 
 impl From<SendError<InPkt>> for Error {
     fn from(_err: SendError<InPkt>) -> Self {
-        Self::LocalDisco // technically not a disconnect but a local drop
+        Self::LocalDisco
     }
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use Error::*;
-        write!(f, "RUDP Error: ")?;
+        write!(f, "RUDP error: ")?;
 
         match self {
-            IoError(err) => write!(f, "IO Error: {}", err),
-            InvalidProtoId(id) => write!(f, "Invalid Protocol ID: {id}"),
-            InvalidPeerID => write!(f, "Invalid Peer ID"),
-            InvalidChannel(ch) => write!(f, "Invalid Channel: {ch}"),
-            InvalidType(tp) => write!(f, "Invalid Type: {tp}"),
-            InvalidCtlType(tp) => write!(f, "Invalid Control Type: {tp}"),
-            RemoteDisco => write!(f, "Remote Disconnected"),
-            LocalDisco => write!(f, "Local Disconnected"),
+            IoError(err) => write!(f, "IO error: {}", err),
+            InvalidProtoId(id) => write!(f, "invalid protocol ID: {id}"),
+            InvalidChannel(ch) => write!(f, "invalid channel: {ch}"),
+            InvalidType(tp) => write!(f, "invalid type: {tp}"),
+            InvalidCtlType(tp) => write!(f, "invalid control type: {tp}"),
+            PeerIDAlreadySet => write!(f, "peer ID already set"),
+            InvalidChunkIndex(i, n) => write!(f, "chunk index {i} bigger than chunk count {n}"),
+            InvalidChunkCount(o, n) => write!(f, "chunk count changed from {o} to {n}"),
+            RemoteDisco => write!(f, "remote disconnected"),
+            LocalDisco => write!(f, "local disconnected"),
         }
     }
 }

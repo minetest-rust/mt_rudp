@@ -133,7 +133,10 @@ impl<R: UdpReceiver, S: UdpSender> RecvWorker<R, S> {
 
         match cursor.read_u8()?.try_into()? {
             PktType::Ctl => match cursor.read_u8()?.try_into()? {
-                CtlType::Ack => { /* TODO */ }
+                CtlType::Ack => {
+                    let seqnum = cursor.read_u16::<BigEndian>()?;
+                    self.share.ack_chans.lock().await.remove(&seqnum);
+                }
                 CtlType::SetPeerID => {
                     let mut id = self.share.remote_id.write().await;
 

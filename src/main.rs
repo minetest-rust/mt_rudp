@@ -10,11 +10,12 @@ use byteorder::{BigEndian, WriteBytesExt};
 pub use client::{connect, Sender as Client};
 use num_enum::TryFromPrimitive;
 use std::{
+    collections::HashMap,
     io::{self, Write},
     ops,
     sync::Arc,
 };
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{mpsc, Mutex, RwLock};
 
 pub const PROTO_ID: u32 = 0x4f457403;
 pub const UDP_PKT_SIZE: usize = 512;
@@ -70,13 +71,10 @@ pub type Error = error::Error;
 pub type InPkt = Result<Pkt<Vec<u8>>, Error>;
 
 #[derive(Debug)]
-pub struct AckChan;
-
-#[derive(Debug)]
 pub struct RudpShare<S: UdpSender> {
     pub id: u16,
     pub remote_id: RwLock<u16>,
-    pub chans: Vec<AckChan>,
+    pub ack_chans: Mutex<HashMap<u16, mpsc::Sender<()>>>,
     udp_tx: S,
 }
 
@@ -156,7 +154,7 @@ pub fn new<S: UdpSender, R: UdpReceiver>(
         id,
         remote_id: RwLock::new(remote_id),
         udp_tx,
-        chans: (0..NUM_CHANS).map(|_| AckChan).collect(),
+        ack_chans: Mutex::new(HashMap::new()),
     });
     let recv_share = Arc::clone(&share);
 

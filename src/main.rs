@@ -15,7 +15,7 @@ use std::{
     ops,
     sync::Arc,
 };
-use tokio::sync::{mpsc, Mutex, RwLock};
+use tokio::sync::{mpsc, watch, Mutex, RwLock};
 
 pub const PROTO_ID: u32 = 0x4f457403;
 pub const UDP_PKT_SIZE: usize = 512;
@@ -69,12 +69,13 @@ pub struct Pkt<T> {
 
 pub type Error = error::Error;
 pub type InPkt = Result<Pkt<Vec<u8>>, Error>;
+type AckChan = (watch::Sender<bool>, watch::Receiver<bool>);
 
 #[derive(Debug)]
 pub struct RudpShare<S: UdpSender> {
     pub id: u16,
     pub remote_id: RwLock<u16>,
-    pub ack_chans: Mutex<HashMap<u16, mpsc::Sender<()>>>,
+    pub ack_chans: Mutex<HashMap<u16, AckChan>>,
     udp_tx: S,
 }
 
@@ -202,6 +203,8 @@ async fn main() -> io::Result<()> {
         }
     }
     println!("disco");
+
+    // close()ing rx is not needed because it has been consumed to the end
 
     Ok(())
 }

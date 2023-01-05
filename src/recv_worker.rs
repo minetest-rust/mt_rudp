@@ -135,7 +135,9 @@ impl<R: UdpReceiver, S: UdpSender> RecvWorker<R, S> {
             PktType::Ctl => match cursor.read_u8()?.try_into()? {
                 CtlType::Ack => {
                     let seqnum = cursor.read_u16::<BigEndian>()?;
-                    self.share.ack_chans.lock().await.remove(&seqnum);
+                    if let Some((tx, _)) = self.share.ack_chans.lock().await.remove(&seqnum) {
+                        tx.send(true).ok();
+                    }
                 }
                 CtlType::SetPeerID => {
                     let mut id = self.share.remote_id.write().await;
@@ -211,6 +213,21 @@ impl<R: UdpReceiver, S: UdpSender> RecvWorker<R, S> {
 
                 let seqnum = cursor.read_u16::<BigEndian>()?;
                 chan.packets[to_seqnum(seqnum)].set(Some(cursor.remaining_slice().into()));
+
+                let mut ack_data = Vec::with_capacity(3);
+                ack_data.write_u8(CtlType::Ack as u8)?;
+                ack_data.write_u16::<BigEndian>(seqnum)?;
+
+                self.share
+                    .send(
+                        PktType::Ctl,
+                        Pkt {
+                            unrel: true,
+                            chan: chan.num,
+                            data: &ack_data,
+                        },
+                    )
+                    .await?;
 
                 fn next_pkt(chan: &mut Chan) -> Option<Vec<u8>> {
                     chan.packets[to_seqnum(chan.seqnum)].take()

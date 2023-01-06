@@ -8,8 +8,8 @@ pub struct Sender {
 
 #[async_trait]
 impl UdpSender for Sender {
-    async fn send(&self, data: Vec<u8>) -> io::Result<()> {
-        self.sock.send(&data).await?;
+    async fn send(&self, data: &[u8]) -> io::Result<()> {
+        self.sock.send(data).await?;
         Ok(())
     }
 }
@@ -42,5 +42,6 @@ pub async fn connect(addr: &str) -> io::Result<(RudpSender<Sender>, RudpReceiver
             sock: Arc::clone(&sock),
         },
         Receiver { sock },
-    ))
+    )
+    .await?)
 }

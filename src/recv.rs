@@ -5,8 +5,8 @@ use std::{
     cell::{Cell, OnceCell},
     collections::HashMap,
     io,
-    sync::{Arc, Weak},
-    time,
+    sync::Arc,
+    time::{Duration, Instant},
 };
 use tokio::sync::{mpsc, Mutex};
 
@@ -17,12 +17,12 @@ fn to_seqnum(seqnum: u16) -> usize {
 type Result<T> = std::result::Result<T, Error>;
 
 struct Split {
-    timestamp: Option<time::Instant>,
+    timestamp: Option<Instant>,
     chunks: Vec<OnceCell<Vec<u8>>>,
     got: usize,
 }
 
-struct Chan {
+struct RecvChan {
     packets: Vec<Cell<Option<Vec<u8>>>>, // char ** 😛
     splits: HashMap<u16, Split>,
     seqnum: u16,
@@ -31,21 +31,28 @@ struct Chan {
 
 pub struct RecvWorker<R: UdpReceiver, S: UdpSender> {
     share: Arc<RudpShare<S>>,
-    chans: Arc<Vec<Mutex<Chan>>>,
+    close: watch::Receiver<bool>,
+    chans: Arc<Vec<Mutex<RecvChan>>>,
     pkt_tx: mpsc::UnboundedSender<InPkt>,
     udp_rx: R,
 }
 
 impl<R: UdpReceiver, S: UdpSender> RecvWorker<R, S> {
-    pub fn new(udp_rx: R, share: Arc<RudpShare<S>>, pkt_tx: mpsc::UnboundedSender<InPkt>) -> Self {
+    pub fn new(
+        udp_rx: R,
+        share: Arc<RudpShare<S>>,
+        close: watch::Receiver<bool>,
+        pkt_tx: mpsc::UnboundedSender<InPkt>,
+    ) -> Self {
         Self {
             udp_rx,
             share,
+            close,
             pkt_tx,
             chans: Arc::new(
                 (0..NUM_CHANS as u8)
                     .map(|num| {
-                        Mutex::new(Chan {
+                        Mutex::new(RecvChan {
                             num,
                             packets: (0..REL_BUFFER).map(|_| Cell::new(None)).collect(),
                             seqnum: INIT_SEQNUM,
@@ -58,28 +65,33 @@ impl<R: UdpReceiver, S: UdpSender> RecvWorker<R, S> {
     }
 
     pub async fn run(&self) {
-        let cleanup_chans = Arc::downgrade(&self.chans);
-        tokio::spawn(async move {
-            let timeout = time::Duration::from_secs(TIMEOUT);
-            let mut interval = tokio::time::interval(timeout);
+        let cleanup_chans = Arc::clone(&self.chans);
+        let mut cleanup_close = self.close.clone();
+        self.share
+            .tasks
+            .lock()
+            .await
+            /*.build_task()
+            .name("cleanup_splits")*/
+            .spawn(async move {
+                let timeout = Duration::from_secs(TIMEOUT);
 
-            while let Some(chans) = Weak::upgrade(&cleanup_chans) {
-                for chan in chans.iter() {
-                    let mut ch = chan.lock().await;
-                    ch.splits = ch
-                        .splits
-                        .drain_filter(
-                            |_k, v| !matches!(v.timestamp, Some(t) if t.elapsed() < timeout),
-                        )
-                        .collect();
-                }
+                ticker!(timeout, cleanup_close, {
+                    for chan_mtx in cleanup_chans.iter() {
+                        let mut chan = chan_mtx.lock().await;
+                        chan.splits = chan
+                            .splits
+                            .drain_filter(
+                                |_k, v| !matches!(v.timestamp, Some(t) if t.elapsed() < timeout),
+                            )
+                            .collect();
+                    }
+                });
+            });
 
-                interval.tick().await;
-            }
-        });
-
+        let mut close = self.close.clone();
         loop {
-            if let Err(e) = self.handle(self.recv_pkt().await) {
+            if let Err(e) = self.handle(self.recv_pkt(&mut close).await) {
                 if let Error::LocalDisco = e {
                     self.share
                         .send(
@@ -98,11 +110,16 @@ impl<R: UdpReceiver, S: UdpSender> RecvWorker<R, S> {
         }
     }
 
-    async fn recv_pkt(&self) -> Result<()> {
+    async fn recv_pkt(&self, close: &mut watch::Receiver<bool>) -> Result<()> {
         use Error::*;
 
-        // todo: reset timeout
-        let mut cursor = io::Cursor::new(self.udp_rx.recv().await?);
+        // TODO: reset timeout
+        let mut cursor = io::Cursor::new(tokio::select! {
+            pkt = self.udp_rx.recv() => pkt?,
+            _ = close.changed() => return Err(LocalDisco),
+        });
+
+        println!("recv");
 
         let proto_id = cursor.read_u32::<BigEndian>()?;
         if proto_id != PROTO_ID {
@@ -127,19 +144,28 @@ impl<R: UdpReceiver, S: UdpSender> RecvWorker<R, S> {
         &self,
         mut cursor: io::Cursor<Vec<u8>>,
         unrel: bool,
-        chan: &mut Chan,
+        chan: &mut RecvChan,
     ) -> Result<()> {
         use Error::*;
 
         match cursor.read_u8()?.try_into()? {
             PktType::Ctl => match cursor.read_u8()?.try_into()? {
                 CtlType::Ack => {
+                    println!("Ack");
+
                     let seqnum = cursor.read_u16::<BigEndian>()?;
-                    if let Some((tx, _)) = self.share.ack_chans.lock().await.remove(&seqnum) {
-                        tx.send(true).ok();
+                    if let Some(ack) = self.share.chans[chan.num as usize]
+                        .lock()
+                        .await
+                        .acks
+                        .remove(&seqnum)
+                    {
+                        ack.tx.send(true).ok();
                     }
                 }
                 CtlType::SetPeerID => {
+                    println!("SetPeerID");
+
                     let mut id = self.share.remote_id.write().await;
 
                     if *id != PeerID::Nil as u16 {
@@ -148,8 +174,13 @@ impl<R: UdpReceiver, S: UdpSender> RecvWorker<R, S> {
 
                     *id = cursor.read_u16::<BigEndian>()?;
                 }
-                CtlType::Ping => {}
-                CtlType::Disco => return Err(RemoteDisco),
+                CtlType::Ping => {
+                    println!("Ping");
+                }
+                CtlType::Disco => {
+                    println!("Disco");
+                    return Err(RemoteDisco);
+                }
             },
             PktType::Orig => {
                 println!("Orig");
@@ -187,11 +218,7 @@ impl<R: UdpReceiver, S: UdpSender> RecvWorker<R, S> {
                     split.got += 1;
                 }
 
-                split.timestamp = if unrel {
-                    Some(time::Instant::now())
-                } else {
-                    None
-                };
+                split.timestamp = if unrel { Some(Instant::now()) } else { None };
 
                 if split.got == chunk_count {
                     self.pkt_tx.send(Ok(Pkt {
@@ -229,7 +256,7 @@ impl<R: UdpReceiver, S: UdpSender> RecvWorker<R, S> {
                     )
                     .await?;
 
-                fn next_pkt(chan: &mut Chan) -> Option<Vec<u8>> {
+                fn next_pkt(chan: &mut RecvChan) -> Option<Vec<u8>> {
                     chan.packets[to_seqnum(chan.seqnum)].take()
                 }
 

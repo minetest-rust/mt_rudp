@@ -52,6 +52,23 @@ pub async fn new<S: UdpSender, R: UdpReceiver>(
             });
         });
 
+    let ping_share = Arc::clone(&share);
+    let mut ping_close = close_rx.clone();
+    tasks
+        /*.build_task()
+        .name("ping")*/
+        .spawn(async move {
+            ticker!(Duration::from_secs(PING_TIMEOUT), ping_close, {
+                let pkt: Pkt<&[u8]> = Pkt {
+                    chan: 0,
+                    unrel: false,
+                    data: &[CtlType::Ping as u8],
+                };
+
+                ping_share.send(PktType::Ctl, pkt).await.ok();
+            });
+        });
+
     drop(tasks);
 
     Ok((

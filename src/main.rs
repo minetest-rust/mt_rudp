@@ -31,6 +31,7 @@ pub const NUM_CHANS: usize = 3;
 pub const REL_BUFFER: usize = 0x8000;
 pub const INIT_SEQNUM: u16 = 65500;
 pub const TIMEOUT: u64 = 30;
+pub const PING_TIMEOUT: u64 = 5;
 
 mod ticker_mod {
     #[macro_export]

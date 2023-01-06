@@ -42,7 +42,7 @@ impl<S: UdpSender> RudpShare<S> {
                     data: buf,
                 },
             );
-            chan.seqnum += 1;
+            chan.seqnum = chan.seqnum.overflowing_add(1).0;
 
             Ok(Some(rx))
         }

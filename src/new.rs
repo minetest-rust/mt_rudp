@@ -59,13 +59,17 @@ pub async fn new<S: UdpSender, R: UdpReceiver>(
         .name("ping")*/
         .spawn(async move {
             ticker!(Duration::from_secs(PING_TIMEOUT), ping_close, {
-                let pkt: Pkt<&[u8]> = Pkt {
-                    chan: 0,
-                    unrel: false,
-                    data: &[CtlType::Ping as u8],
-                };
-
-                ping_share.send(PktType::Ctl, pkt).await.ok();
+                ping_share
+                    .send(
+                        PktType::Ctl,
+                        Pkt {
+                            chan: 0,
+                            unrel: false,
+                            data: &[CtlType::Ping as u8],
+                        },
+                    )
+                    .await
+                    .ok();
             });
         });
 

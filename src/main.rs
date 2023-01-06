@@ -186,7 +186,6 @@ async fn example(tx: &RudpSender<Client>, rx: &mut RudpReceiver<Client>) -> io::
         data: &mtpkt,
     })
     .await?;
-
     // handle incoming packets
     while let Some(result) = rx.recv().await {
         match result {

@@ -13,7 +13,7 @@ pub enum Error {
     PeerIDAlreadySet,
     InvalidChunkIndex(usize, usize),
     InvalidChunkCount(usize, usize),
-    RemoteDisco,
+    RemoteDisco(bool),
     LocalDisco,
 }
 
@@ -44,7 +44,7 @@ impl From<SendError<InPkt>> for Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use Error::*;
-        write!(f, "RUDP error: ")?;
+        write!(f, "rudp: ")?;
 
         match self {
             IoError(err) => write!(f, "IO error: {}", err),
@@ -55,7 +55,11 @@ impl fmt::Display for Error {
             PeerIDAlreadySet => write!(f, "peer ID already set"),
             InvalidChunkIndex(i, n) => write!(f, "chunk index {i} bigger than chunk count {n}"),
             InvalidChunkCount(o, n) => write!(f, "chunk count changed from {o} to {n}"),
-            RemoteDisco => write!(f, "remote disconnected"),
+            RemoteDisco(to) => write!(
+                f,
+                "remote disconnected{}",
+                if *to { " (timeout)" } else { "" }
+            ),
             LocalDisco => write!(f, "local disconnected"),
         }
     }

@@ -8,5 +8,8 @@ async-recursion = "1.0.0"
 async-trait = "0.1.60"
 byteorder = "1.4.3"
 num_enum = "0.5.7"
+tokio = { version = "1.23.0", features = ["sync", "time", "net", "signal", "macros", "rt"] }
+
+[dev-dependencies]
 pretty-hex = "0.3.0"
-tokio = { version = "1.23.0", features = ["full"] }
+tokio = { features = ["rt-multi-thread"] }

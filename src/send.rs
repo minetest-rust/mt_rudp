@@ -1,4 +1,6 @@
-use crate::*;
+use crate::{prelude::*, Ack, RudpShare};
+use byteorder::{BigEndian, WriteBytesExt};
+use std::io::{self, Write};
 use tokio::sync::watch;
 
 type AckResult = io::Result<Option<watch::Receiver<bool>>>;
@@ -50,6 +52,5 @@ impl<S: UdpSender> RudpShare<S> {
 
     pub async fn send_raw(&self, data: &[u8]) -> io::Result<()> {
         self.udp_tx.send(data).await
-        // TODO: reset ping timeout
     }
 }

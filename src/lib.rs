@@ -2,52 +2,26 @@
 #![feature(hash_drain_filter)]
 #![feature(once_cell)]
 mod client;
-pub mod error;
+mod error;
 mod new;
 mod recv;
 mod send;
 
+pub use prelude::*;
+
 use async_trait::async_trait;
-use byteorder::{BigEndian, WriteBytesExt};
-pub use client::{connect, Sender as Client};
-pub use new::new;
 use num_enum::TryFromPrimitive;
-use pretty_hex::PrettyHex;
 use std::{
+    cell::{Cell, OnceCell},
     collections::HashMap,
-    io::{self, Write},
-    ops,
+    io, ops,
     sync::Arc,
-    time::Duration,
+    time::Instant,
 };
 use tokio::{
     sync::{mpsc, watch, Mutex, RwLock},
     task::JoinSet,
 };
-
-pub const PROTO_ID: u32 = 0x4f457403;
-pub const UDP_PKT_SIZE: usize = 512;
-pub const NUM_CHANS: usize = 3;
-pub const REL_BUFFER: usize = 0x8000;
-pub const INIT_SEQNUM: u16 = 65500;
-pub const TIMEOUT: u64 = 30;
-pub const PING_TIMEOUT: u64 = 5;
-
-mod ticker_mod {
-    #[macro_export]
-    macro_rules! ticker {
-		($duration:expr, $close:expr, $body:block) => {
-			let mut interval = tokio::time::interval($duration);
-
-			while tokio::select!{
-				_ = interval.tick() => true,
-				_ = $close.changed() => false,
-			} $body
-		};
-	}
-
-    //pub(crate) use ticker;
-}
 
 #[async_trait]
 pub trait UdpSender: Send + Sync + 'static {
@@ -87,13 +61,12 @@ pub enum CtlType {
 
 #[derive(Debug)]
 pub struct Pkt<T> {
-    unrel: bool,
-    chan: u8,
-    data: T,
+    pub unrel: bool,
+    pub chan: u8,
+    pub data: T,
 }
 
-pub type Error = error::Error;
-pub type InPkt = Result<Pkt<Vec<u8>>, Error>;
+pub type InPkt = Result<Pkt<Vec<u8>>, error::Error>;
 
 #[derive(Debug)]
 struct Ack {
@@ -109,7 +82,7 @@ struct Chan {
 }
 
 #[derive(Debug)]
-pub struct RudpShare<S: UdpSender> {
+struct RudpShare<S: UdpSender> {
     id: u16,
     remote_id: RwLock<u16>,
     chans: Vec<Mutex<Chan>>,
@@ -169,51 +142,53 @@ impl<S: UdpSender> ops::DerefMut for RudpReceiver<S> {
     }
 }
 
-async fn example(tx: &RudpSender<Client>, rx: &mut RudpReceiver<Client>) -> io::Result<()> {
-    // send hello packet
-    let mut mtpkt = vec![];
-    mtpkt.write_u16::<BigEndian>(2)?; // high level type
-    mtpkt.write_u8(29)?; // serialize ver
-    mtpkt.write_u16::<BigEndian>(0)?; // compression modes
-    mtpkt.write_u16::<BigEndian>(40)?; // MinProtoVer
-    mtpkt.write_u16::<BigEndian>(40)?; // MaxProtoVer
-    mtpkt.write_u16::<BigEndian>(6)?; // player name length
-    mtpkt.write(b"foobar")?; // player name
-
-    tx.send(Pkt {
-        unrel: true,
-        chan: 1,
-        data: &mtpkt,
-    })
-    .await?;
-    // handle incoming packets
-    while let Some(result) = rx.recv().await {
-        match result {
-            Ok(pkt) => {
-                println!("{}", pkt.data.hex_dump());
-            }
-            Err(err) => eprintln!("Error: {}", err),
-        }
-    }
-
-    Ok(())
+#[derive(Debug)]
+struct Split {
+    timestamp: Option<Instant>,
+    chunks: Vec<OnceCell<Vec<u8>>>,
+    got: usize,
 }
 
-#[tokio::main]
-async fn main() -> io::Result<()> {
-    let (tx, mut rx) = connect("127.0.0.1:30000").await?;
+struct RecvChan {
+    packets: Vec<Cell<Option<Vec<u8>>>>, // char ** 😛
+    splits: HashMap<u16, Split>,
+    seqnum: u16,
+    num: u8,
+}
 
-    tokio::select! {
-        _ = tokio::signal::ctrl_c() => println!("canceled"),
-        res = example(&tx, &mut rx) => {
-            res?;
-            println!("disconnected");
-        }
-    }
+struct RecvWorker<R: UdpReceiver, S: UdpSender> {
+    share: Arc<RudpShare<S>>,
+    close: watch::Receiver<bool>,
+    chans: Arc<Vec<Mutex<RecvChan>>>,
+    pkt_tx: mpsc::UnboundedSender<InPkt>,
+    udp_rx: R,
+}
 
-    // close either the receiver or the sender
-    // this shuts down associated tasks
-    rx.close().await;
+mod prelude {
+    pub const PROTO_ID: u32 = 0x4f457403;
+    pub const UDP_PKT_SIZE: usize = 512;
+    pub const NUM_CHANS: usize = 3;
+    pub const REL_BUFFER: usize = 0x8000;
+    pub const INIT_SEQNUM: u16 = 65500;
+    pub const TIMEOUT: u64 = 30;
+    pub const PING_TIMEOUT: u64 = 5;
 
-    Ok(())
+    pub use super::{
+        client::{connect, Sender as Client},
+        error::Error,
+        new::new,
+        CtlType, InPkt, PeerID, Pkt, PktType, RudpReceiver, RudpSender, UdpReceiver, UdpSender,
+    };
+
+    #[macro_export]
+    macro_rules! ticker {
+		($duration:expr, $close:expr, $body:block) => {
+			let mut interval = tokio::time::interval($duration);
+
+			while tokio::select!{
+				_ = interval.tick() => true,
+				_ = $close.changed() => false,
+			} $body
+		};
+	}
 }

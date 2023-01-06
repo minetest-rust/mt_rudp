@@ -47,7 +47,7 @@ impl fmt::Display for Error {
         write!(f, "rudp: ")?;
 
         match self {
-            IoError(err) => write!(f, "IO error: {}", err),
+            IoError(err) => write!(f, "IO error: {err}"),
             InvalidProtoId(id) => write!(f, "invalid protocol ID: {id}"),
             InvalidChannel(ch) => write!(f, "invalid channel: {ch}"),
             InvalidType(tp) => write!(f, "invalid type: {tp}"),

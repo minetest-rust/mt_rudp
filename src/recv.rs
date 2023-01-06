@@ -82,6 +82,7 @@ impl<R: UdpReceiver, S: UdpSender> RecvWorker<R, S> {
                     self.pkt_tx.send(Err(RemoteDisco(to))).ok();
                 }
 
+                #[allow(clippy::single_match)]
                 match e {
 					// anon5's mt notifies the peer on timeout, C++ MT does not
 					LocalDisco /*| RemoteDisco(true)*/ => drop(

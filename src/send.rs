@@ -12,11 +12,12 @@ impl<S: UdpSender> RudpSender<S> {
 }
 
 impl<S: UdpSender> RudpShare<S> {
+    #[allow(clippy::unused_io_amount)]
     pub async fn send(&self, tp: PktType, pkt: Pkt<&[u8]>) -> AckResult {
         let mut buf = Vec::with_capacity(4 + 2 + 1 + 1 + 2 + 1 + pkt.data.len());
         buf.write_u32::<BigEndian>(PROTO_ID)?;
         buf.write_u16::<BigEndian>(*self.remote_id.read().await)?;
-        buf.write_u8(pkt.chan as u8)?;
+        buf.write_u8(pkt.chan)?;
 
         let mut chan = self.chans[pkt.chan as usize].lock().await;
         let seqnum = chan.seqnum;

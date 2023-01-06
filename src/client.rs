@@ -36,7 +36,7 @@ pub async fn connect(addr: &str) -> io::Result<(RudpSender<Sender>, RudpReceiver
     let sock = Arc::new(net::UdpSocket::bind("0.0.0.0:0").await?);
     sock.connect(addr).await?;
 
-    Ok(new(
+    new(
         PeerID::Srv as u16,
         PeerID::Nil as u16,
         Sender {
@@ -44,5 +44,5 @@ pub async fn connect(addr: &str) -> io::Result<(RudpSender<Sender>, RudpReceiver
         },
         Receiver { sock },
     )
-    .await?)
+    .await
 }

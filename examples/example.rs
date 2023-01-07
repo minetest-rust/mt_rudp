@@ -12,7 +12,7 @@ async fn example(tx: &RudpSender<Client>, rx: &mut RudpReceiver<Client>) -> io::
     pkt.write_u16::<BigEndian>(40)?; // MinProtoVer
     pkt.write_u16::<BigEndian>(40)?; // MaxProtoVer
     pkt.write_u16::<BigEndian>(3)?; // player name length
-    pkt.write(b"foo")?; // player name
+    pkt.write_all(b"foo")?; // player name
 
     tx.send(mt_rudp::Pkt {
         unrel: true,

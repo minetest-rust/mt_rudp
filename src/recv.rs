@@ -2,7 +2,7 @@ use crate::{prelude::*, ticker, RecvChan, RecvWorker, RudpShare, Split};
 use async_recursion::async_recursion;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::{
-    cell::{Cell, OnceCell},
+    cell::OnceCell,
     collections::HashMap,
     io,
     pin::Pin,
@@ -34,7 +34,7 @@ impl<R: UdpReceiver, S: UdpSender> RecvWorker<R, S> {
                     .map(|num| {
                         Mutex::new(RecvChan {
                             num,
-                            packets: (0..REL_BUFFER).map(|_| Cell::new(None)).collect(),
+                            packets: (0..REL_BUFFER).map(|_| None).collect(),
                             seqnum: INIT_SEQNUM,
                             splits: HashMap::new(),
                         })
@@ -239,7 +239,7 @@ impl<R: UdpReceiver, S: UdpSender> RecvWorker<R, S> {
                 println!("Rel");
 
                 let seqnum = cursor.read_u16::<BigEndian>()?;
-                chan.packets[to_seqnum(seqnum)].set(Some(cursor.remaining_slice().into()));
+                chan.packets[to_seqnum(seqnum)].replace(cursor.remaining_slice().into());
 
                 let mut ack_data = Vec::with_capacity(3);
                 ack_data.write_u8(CtlType::Ack as u8)?;

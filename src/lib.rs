@@ -11,13 +11,7 @@ pub use prelude::*;
 
 use async_trait::async_trait;
 use num_enum::TryFromPrimitive;
-use std::{
-    cell::{Cell, OnceCell},
-    collections::HashMap,
-    io, ops,
-    sync::Arc,
-    time::Instant,
-};
+use std::{cell::OnceCell, collections::HashMap, io, ops, sync::Arc, time::Instant};
 use tokio::{
     sync::{mpsc, watch, Mutex, RwLock},
     task::JoinSet,
@@ -150,7 +144,7 @@ struct Split {
 }
 
 struct RecvChan {
-    packets: Vec<Cell<Option<Vec<u8>>>>, // char ** 😛
+    packets: Vec<Option<Vec<u8>>>, // char ** 😛
     splits: HashMap<u16, Split>,
     seqnum: u16,
     num: u8,

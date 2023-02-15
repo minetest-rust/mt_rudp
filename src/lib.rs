@@ -10,8 +10,9 @@ mod send;
 pub use prelude::*;
 
 use async_trait::async_trait;
+use delegate::delegate;
 use num_enum::TryFromPrimitive;
-use std::{cell::OnceCell, collections::HashMap, io, ops, sync::Arc, time::Instant};
+use std::{cell::OnceCell, collections::HashMap, io, sync::Arc, time::Instant};
 use tokio::{
     sync::{mpsc, watch, Mutex, RwLock},
     task::JoinSet,
@@ -122,17 +123,11 @@ macro_rules! impl_share {
 impl_share!(RudpReceiver);
 impl_share!(RudpSender);
 
-impl<S: UdpSender> ops::Deref for RudpReceiver<S> {
-    type Target = mpsc::UnboundedReceiver<InPkt>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.pkt_rx
-    }
-}
-
-impl<S: UdpSender> ops::DerefMut for RudpReceiver<S> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.pkt_rx
+impl<S: UdpSender> RudpReceiver<S> {
+    delegate! {
+        to self.pkt_rx {
+            pub async fn recv(&mut self) -> Option<InPkt>;
+        }
     }
 }
 

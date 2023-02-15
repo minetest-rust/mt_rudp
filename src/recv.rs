@@ -2,6 +2,7 @@ use super::*;
 use async_recursion::async_recursion;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::{
+    borrow::Cow,
     cell::OnceCell,
     collections::HashMap,
     io,
@@ -114,7 +115,7 @@ impl<R: UdpReceiver, S: UdpSender> RecvWorker<R, S> {
 								Pkt {
 									unrel: true,
 									chan: 0,
-									data: &[CtlType::Disco as u8],
+									data: Cow::Borrowed(&[CtlType::Disco as u8]),
 								},
 							)
 							.await
@@ -210,7 +211,7 @@ impl<R: UdpReceiver, S: UdpSender> RecvWorker<R, S> {
                 self.pkt_tx.send(Ok(Pkt {
                     chan: chan.num,
                     unrel,
-                    data: cursor.remaining_slice().into(),
+                    data: Cow::Owned(cursor.remaining_slice().into()),
                 }))?;
             }
             PktType::Split => {
@@ -273,7 +274,7 @@ impl<R: UdpReceiver, S: UdpSender> RecvWorker<R, S> {
                         Pkt {
                             unrel: true,
                             chan: chan.num,
-                            data: &ack_data,
+                            data: Cow::Borrowed(&ack_data),
                         },
                     )
                     .await?;

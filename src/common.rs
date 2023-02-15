@@ -2,7 +2,7 @@ use super::*;
 use async_trait::async_trait;
 use delegate::delegate;
 use num_enum::TryFromPrimitive;
-use std::{io, sync::Arc};
+use std::{borrow::Cow, io, sync::Arc};
 use tokio::sync::mpsc;
 
 pub const PROTO_ID: u32 = 0x4f457403;
@@ -50,13 +50,13 @@ pub enum CtlType {
 }
 
 #[derive(Debug)]
-pub struct Pkt<T> {
+pub struct Pkt<'a> {
     pub unrel: bool,
     pub chan: u8,
-    pub data: T,
+    pub data: Cow<'a, [u8]>,
 }
 
-pub type InPkt = Result<Pkt<Vec<u8>>, error::Error>;
+pub type InPkt = Result<Pkt<'static>, Error>;
 
 #[derive(Debug)]
 pub struct RudpReceiver<S: UdpSender> {

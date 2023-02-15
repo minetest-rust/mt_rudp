@@ -1,5 +1,5 @@
 use super::*;
-use std::{collections::HashMap, io, sync::Arc, time::Duration};
+use std::{borrow::Cow, collections::HashMap, io, sync::Arc, time::Duration};
 use tokio::{
     sync::{mpsc, watch, Mutex, RwLock},
     task::JoinSet,
@@ -93,7 +93,7 @@ pub async fn new<S: UdpSender, R: UdpReceiver>(
                         Pkt {
                             chan: 0,
                             unrel: false,
-                            data: &[CtlType::Ping as u8],
+                            data: Cow::Borrowed(&[CtlType::Ping as u8]),
                         },
                     )
                     .await

@@ -81,6 +81,7 @@ macro_rules! impl_share {
             }
 
             pub async fn close(self) {
+                self.share.bomb.lock().await.defuse();
                 self.share.close_tx.send(true).ok();
 
                 let mut tasks = self.share.tasks.lock().await;

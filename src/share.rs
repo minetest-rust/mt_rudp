@@ -1,4 +1,5 @@
 use super::*;
+use drop_bomb::DropBomb;
 use std::{borrow::Cow, collections::HashMap, io, sync::Arc, time::Duration};
 use tokio::{
     sync::{mpsc, watch, Mutex, RwLock},
@@ -26,6 +27,7 @@ pub(crate) struct RudpShare<S: UdpSender> {
     pub(crate) udp_tx: S,
     pub(crate) close_tx: watch::Sender<bool>,
     pub(crate) tasks: Mutex<JoinSet<()>>,
+    pub(crate) bomb: Mutex<DropBomb>,
 }
 
 pub async fn new<S: UdpSender, R: UdpReceiver>(
@@ -51,6 +53,7 @@ pub async fn new<S: UdpSender, R: UdpReceiver>(
             })
             .collect(),
         tasks: Mutex::new(JoinSet::new()),
+        bomb: Mutex::new(DropBomb::new("rudp connection must be explicitly closed")),
     });
 
     let mut tasks = share.tasks.lock().await;

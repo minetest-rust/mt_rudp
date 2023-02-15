@@ -1,26 +1,30 @@
 use crate::prelude::*;
 use num_enum::TryFromPrimitiveError;
-use std::{fmt, io};
+use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
 
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum Error {
-    IoError(io::Error),
+    #[error("io error: {0}")]
+    IoError(#[from] std::io::Error),
+    #[error("invalid protocol ID: {0}")]
     InvalidProtoId(u32),
+    #[error("invalid channel: {0}")]
     InvalidChannel(u8),
+    #[error("invalid type: {0}")]
     InvalidType(u8),
+    #[error("invalid control type: {0}")]
     InvalidCtlType(u8),
+    #[error("peer ID already set")]
     PeerIDAlreadySet,
+    #[error("chunk index {0} bigger than chunk count {1}")]
     InvalidChunkIndex(usize, usize),
+    #[error("chunk count changed from {0} to {1}")]
     InvalidChunkCount(usize, usize),
+    #[error("remote disconnected (timeout = {0})")]
     RemoteDisco(bool),
+    #[error("local disconnected")]
     LocalDisco,
-}
-
-impl From<io::Error> for Error {
-    fn from(err: io::Error) -> Self {
-        Self::IoError(err)
-    }
 }
 
 impl From<TryFromPrimitiveError<PktType>> for Error {
@@ -31,7 +35,7 @@ impl From<TryFromPrimitiveError<PktType>> for Error {
 
 impl From<TryFromPrimitiveError<CtlType>> for Error {
     fn from(err: TryFromPrimitiveError<CtlType>) -> Self {
-        Self::InvalidType(err.number)
+        Self::InvalidCtlType(err.number)
     }
 }
 
@@ -40,29 +44,3 @@ impl From<SendError<InPkt>> for Error {
         Self::LocalDisco
     }
 }
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use Error::*;
-        write!(f, "rudp: ")?;
-
-        match self {
-            IoError(err) => write!(f, "IO error: {err}"),
-            InvalidProtoId(id) => write!(f, "invalid protocol ID: {id}"),
-            InvalidChannel(ch) => write!(f, "invalid channel: {ch}"),
-            InvalidType(tp) => write!(f, "invalid type: {tp}"),
-            InvalidCtlType(tp) => write!(f, "invalid control type: {tp}"),
-            PeerIDAlreadySet => write!(f, "peer ID already set"),
-            InvalidChunkIndex(i, n) => write!(f, "chunk index {i} bigger than chunk count {n}"),
-            InvalidChunkCount(o, n) => write!(f, "chunk count changed from {o} to {n}"),
-            RemoteDisco(to) => write!(
-                f,
-                "remote disconnected{}",
-                if *to { " (timeout)" } else { "" }
-            ),
-            LocalDisco => write!(f, "local disconnected"),
-        }
-    }
-}
-
-impl std::error::Error for Error {}

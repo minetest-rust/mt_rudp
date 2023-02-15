@@ -51,6 +51,10 @@ impl<S: UdpSender> RudpShare<S> {
     }
 
     pub async fn send_raw(&self, data: &[u8]) -> io::Result<()> {
+        if data.len() > UDP_PKT_SIZE {
+            panic!("splitting packets is not implemented yet");
+        }
+
         self.udp_tx.send(data).await
     }
 }

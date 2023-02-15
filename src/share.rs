@@ -1,9 +1,32 @@
-use crate::{prelude::*, ticker, Chan, RecvWorker, RudpShare};
+use super::*;
 use std::{collections::HashMap, io, sync::Arc, time::Duration};
 use tokio::{
     sync::{mpsc, watch, Mutex, RwLock},
     task::JoinSet,
 };
+
+#[derive(Debug)]
+pub(crate) struct Ack {
+    pub(crate) tx: watch::Sender<bool>,
+    pub(crate) rx: watch::Receiver<bool>,
+    pub(crate) data: Vec<u8>,
+}
+
+#[derive(Debug)]
+pub(crate) struct Chan {
+    pub(crate) acks: HashMap<u16, Ack>,
+    pub(crate) seqnum: u16,
+}
+
+#[derive(Debug)]
+pub(crate) struct RudpShare<S: UdpSender> {
+    pub(crate) id: u16,
+    pub(crate) remote_id: RwLock<u16>,
+    pub(crate) chans: Vec<Mutex<Chan>>,
+    pub(crate) udp_tx: S,
+    pub(crate) close_tx: watch::Sender<bool>,
+    pub(crate) tasks: Mutex<JoinSet<()>>,
+}
 
 pub async fn new<S: UdpSender, R: UdpReceiver>(
     id: u16,

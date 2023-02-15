@@ -1,9 +1,9 @@
 use byteorder::{BigEndian, WriteBytesExt};
-use mt_rudp::{Client, RudpReceiver, RudpSender};
+use mt_rudp::{RudpReceiver, RudpSender, ToSrv};
 use pretty_hex::PrettyHex;
 use std::io::{self, Write};
 
-async fn example(tx: &RudpSender<Client>, rx: &mut RudpReceiver<Client>) -> io::Result<()> {
+async fn example(tx: &RudpSender<ToSrv>, rx: &mut RudpReceiver<ToSrv>) -> io::Result<()> {
     // send hello packet
     let mut pkt = vec![];
     pkt.write_u16::<BigEndian>(2)?; // high level type

@@ -1,9 +1,9 @@
-use crate::{prelude::*, Ack, RudpShare};
+use super::*;
 use byteorder::{BigEndian, WriteBytesExt};
 use std::io::{self, Write};
 use tokio::sync::watch;
 
-type AckResult = io::Result<Option<watch::Receiver<bool>>>;
+pub type AckResult = io::Result<Option<watch::Receiver<bool>>>;
 
 impl<S: UdpSender> RudpSender<S> {
     pub async fn send(&self, pkt: Pkt<&[u8]>) -> AckResult {

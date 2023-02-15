@@ -1,4 +1,4 @@
-use crate::{prelude::*, ticker, RecvChan, RecvWorker, RudpShare, Split};
+use super::*;
 use async_recursion::async_recursion;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::{
@@ -16,6 +16,28 @@ fn to_seqnum(seqnum: u16) -> usize {
 }
 
 type Result<T> = std::result::Result<T, Error>;
+
+#[derive(Debug)]
+struct Split {
+    timestamp: Option<Instant>,
+    chunks: Vec<OnceCell<Vec<u8>>>,
+    got: usize,
+}
+
+struct RecvChan {
+    packets: Vec<Option<Vec<u8>>>, // char ** 😛
+    splits: HashMap<u16, Split>,
+    seqnum: u16,
+    num: u8,
+}
+
+pub(crate) struct RecvWorker<R: UdpReceiver, S: UdpSender> {
+    share: Arc<RudpShare<S>>,
+    close: watch::Receiver<bool>,
+    chans: Arc<Vec<Mutex<RecvChan>>>,
+    pkt_tx: mpsc::UnboundedSender<InPkt>,
+    udp_rx: R,
+}
 
 impl<R: UdpReceiver, S: UdpSender> RecvWorker<R, S> {
     pub fn new(

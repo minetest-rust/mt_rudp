@@ -174,7 +174,7 @@ impl<R: UdpReceiver, S: UdpSender> RecvWorker<R, S> {
         match cursor.read_u8()?.try_into()? {
             PktType::Ctl => match cursor.read_u8()?.try_into()? {
                 CtlType::Ack => {
-                    println!("Ack");
+                    // println!("Ack");
 
                     let seqnum = cursor.read_u16::<BigEndian>()?;
                     if let Some(ack) = self.share.chans[chan.num as usize]
@@ -187,7 +187,7 @@ impl<R: UdpReceiver, S: UdpSender> RecvWorker<R, S> {
                     }
                 }
                 CtlType::SetPeerID => {
-                    println!("SetPeerID");
+                    // println!("SetPeerID");
 
                     let mut id = self.share.remote_id.write().await;
 
@@ -198,15 +198,15 @@ impl<R: UdpReceiver, S: UdpSender> RecvWorker<R, S> {
                     *id = cursor.read_u16::<BigEndian>()?;
                 }
                 CtlType::Ping => {
-                    println!("Ping");
+                    // println!("Ping");
                 }
                 CtlType::Disco => {
-                    println!("Disco");
+                    // println!("Disco");
                     return Err(RemoteDisco(false));
                 }
             },
             PktType::Orig => {
-                println!("Orig");
+                // println!("Orig");
 
                 self.pkt_tx.send(Ok(Pkt {
                     chan: chan.num,
@@ -215,7 +215,7 @@ impl<R: UdpReceiver, S: UdpSender> RecvWorker<R, S> {
                 }))?;
             }
             PktType::Split => {
-                println!("Split");
+                // println!("Split");
 
                 let seqnum = cursor.read_u16::<BigEndian>()?;
                 let chunk_index = cursor.read_u16::<BigEndian>()? as usize;
@@ -259,7 +259,7 @@ impl<R: UdpReceiver, S: UdpSender> RecvWorker<R, S> {
                 }
             }
             PktType::Rel => {
-                println!("Rel");
+                // println!("Rel");
 
                 let seqnum = cursor.read_u16::<BigEndian>()?;
                 chan.packets[to_seqnum(seqnum)].replace(cursor.remaining_slice().into());

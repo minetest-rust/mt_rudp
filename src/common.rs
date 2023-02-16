@@ -69,6 +69,15 @@ pub struct RudpSender<S: UdpSender> {
     pub(crate) share: Arc<RudpShare<S>>,
 }
 
+// derive(Clone) adds unwanted Clone trait bound to S parameter
+impl<S: UdpSender> Clone for RudpSender<S> {
+    fn clone(&self) -> Self {
+        Self {
+            share: Arc::clone(&self.share),
+        }
+    }
+}
+
 macro_rules! impl_share {
     ($T:ident) => {
         impl<S: UdpSender> $T<S> {

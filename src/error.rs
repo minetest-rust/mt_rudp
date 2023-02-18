@@ -1,7 +1,6 @@
 use super::*;
 use num_enum::TryFromPrimitiveError;
 use thiserror::Error;
-use tokio::sync::mpsc::error::SendError;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -36,11 +35,5 @@ impl From<TryFromPrimitiveError<PktType>> for Error {
 impl From<TryFromPrimitiveError<CtlType>> for Error {
     fn from(err: TryFromPrimitiveError<CtlType>) -> Self {
         Self::InvalidCtlType(err.number)
-    }
-}
-
-impl From<SendError<InPkt>> for Error {
-    fn from(_err: SendError<InPkt>) -> Self {
-        Self::LocalDisco
     }
 }

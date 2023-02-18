@@ -1,17 +1,33 @@
 use super::*;
 use byteorder::{BigEndian, WriteBytesExt};
-use std::io::{self, Write};
+use std::{
+    io::{self, Write},
+    sync::Arc,
+};
 use tokio::sync::watch;
 
 pub type AckResult = io::Result<Option<watch::Receiver<bool>>>;
 
-impl<S: UdpSender> RudpSender<S> {
+pub struct RudpSender<P: UdpPeer> {
+    pub(crate) share: Arc<RudpShare<P>>,
+}
+
+// derive(Clone) adds unwanted Clone trait bound to P parameter
+impl<P: UdpPeer> Clone for RudpSender<P> {
+    fn clone(&self) -> Self {
+        Self {
+            share: Arc::clone(&self.share),
+        }
+    }
+}
+
+impl<P: UdpPeer> RudpSender<P> {
     pub async fn send(&self, pkt: Pkt<'_>) -> AckResult {
         self.share.send(PktType::Orig, pkt).await // TODO: splits
     }
 }
 
-impl<S: UdpSender> RudpShare<S> {
+impl<P: UdpPeer> RudpShare<P> {
     pub async fn send(&self, tp: PktType, pkt: Pkt<'_>) -> AckResult {
         let mut buf = Vec::with_capacity(4 + 2 + 1 + 1 + 2 + 1 + pkt.data.len());
         buf.write_u32::<BigEndian>(PROTO_ID)?;

@@ -1,9 +1,6 @@
-use super::*;
 use async_trait::async_trait;
-use delegate::delegate;
 use num_enum::TryFromPrimitive;
-use std::{borrow::Cow, io, sync::Arc};
-use tokio::sync::mpsc;
+use std::{borrow::Cow, fmt::Debug, io};
 
 pub const PROTO_ID: u32 = 0x4f457403;
 pub const UDP_PKT_SIZE: usize = 512;
@@ -14,13 +11,18 @@ pub const TIMEOUT: u64 = 30;
 pub const PING_TIMEOUT: u64 = 5;
 
 #[async_trait]
-pub trait UdpSender: Send + Sync + 'static {
+pub trait UdpSender: Send + Sync {
     async fn send(&self, data: &[u8]) -> io::Result<()>;
 }
 
 #[async_trait]
-pub trait UdpReceiver: Send + Sync + 'static {
-    async fn recv(&self) -> io::Result<Vec<u8>>;
+pub trait UdpReceiver: Send {
+    async fn recv(&mut self) -> io::Result<Vec<u8>>;
+}
+
+pub trait UdpPeer {
+    type Sender: UdpSender;
+    type Receiver: UdpReceiver;
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -54,61 +56,4 @@ pub struct Pkt<'a> {
     pub unrel: bool,
     pub chan: u8,
     pub data: Cow<'a, [u8]>,
-}
-
-pub type InPkt = Result<Pkt<'static>, Error>;
-
-#[derive(Debug)]
-pub struct RudpReceiver<S: UdpSender> {
-    pub(crate) share: Arc<RudpShare<S>>,
-    pub(crate) pkt_rx: mpsc::UnboundedReceiver<InPkt>,
-}
-
-#[derive(Debug)]
-pub struct RudpSender<S: UdpSender> {
-    pub(crate) share: Arc<RudpShare<S>>,
-}
-
-// derive(Clone) adds unwanted Clone trait bound to S parameter
-impl<S: UdpSender> Clone for RudpSender<S> {
-    fn clone(&self) -> Self {
-        Self {
-            share: Arc::clone(&self.share),
-        }
-    }
-}
-
-macro_rules! impl_share {
-    ($T:ident) => {
-        impl<S: UdpSender> $T<S> {
-            pub async fn peer_id(&self) -> u16 {
-                self.share.id
-            }
-
-            pub async fn is_server(&self) -> bool {
-                self.share.id == PeerID::Srv as u16
-            }
-
-            pub async fn close(self) {
-                self.share.bomb.lock().await.defuse();
-                self.share.close_tx.send(true).ok();
-
-                let mut tasks = self.share.tasks.lock().await;
-                while let Some(res) = tasks.join_next().await {
-                    res.ok(); // TODO: handle error (?)
-                }
-            }
-        }
-    };
-}
-
-impl_share!(RudpReceiver);
-impl_share!(RudpSender);
-
-impl<S: UdpSender> RudpReceiver<S> {
-    delegate! {
-        to self.pkt_rx {
-            pub async fn recv(&mut self) -> Option<InPkt>;
-        }
-    }
 }

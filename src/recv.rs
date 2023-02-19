@@ -227,8 +227,8 @@ impl<P: UdpPeer> RudpReceiver<P> {
                 // println!("Split");
 
                 let seqnum = cursor.read_u16::<BigEndian>()?;
-                let chunk_index = cursor.read_u16::<BigEndian>()? as usize;
                 let chunk_count = cursor.read_u16::<BigEndian>()? as usize;
+                let chunk_index = cursor.read_u16::<BigEndian>()? as usize;
 
                 let mut split = self.chans[ch]
                     .splits

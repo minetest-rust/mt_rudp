@@ -45,6 +45,7 @@ pub struct Worker<S: UdpSender, R: UdpReceiver> {
     cleanup: Interval,
     timeout: Pin<Box<Sleep>>,
     output: mpsc::UnboundedSender<Result<Pkt<'static>>>,
+    closed: bool,
 }
 
 impl<S: UdpSender, R: UdpReceiver> Worker<S, R> {
@@ -63,6 +64,7 @@ impl<S: UdpSender, R: UdpReceiver> Worker<S, R> {
             ping: interval(Duration::from_secs(PING_TIMEOUT)),
             cleanup: interval(Duration::from_secs(TIMEOUT)),
             timeout: Box::pin(sleep(Duration::from_secs(TIMEOUT))),
+            closed: false,
             chans: std::array::from_fn(|_| RecvChan {
                 packets: (0..REL_BUFFER).map(|_| None).collect(),
                 seqnum: INIT_SEQNUM,
@@ -74,7 +76,7 @@ impl<S: UdpSender, R: UdpReceiver> Worker<S, R> {
     pub async fn run(mut self) {
         use Error::*;
 
-        loop {
+        while !self.closed {
             tokio::select! {
                 _ = self.close.changed() => {
                     self.sender
@@ -190,6 +192,7 @@ impl<S: UdpSender, R: UdpReceiver> Worker<S, R> {
                 }
                 CtlType::Ping => {}
                 CtlType::Disco => {
+                    self.closed = true;
                     return Err(RemoteDisco(false));
                 }
             },

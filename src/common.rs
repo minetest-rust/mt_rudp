@@ -20,11 +20,6 @@ pub trait UdpReceiver: Send {
     async fn recv(&mut self) -> io::Result<Vec<u8>>;
 }
 
-pub trait UdpPeer {
-    type Sender: UdpSender;
-    type Receiver: UdpReceiver;
-}
-
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(u16)]
 pub enum PeerID {

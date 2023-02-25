@@ -3,14 +3,14 @@ use async_recursion::async_recursion;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::{
     borrow::Cow,
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     io,
     pin::Pin,
     sync::Arc,
     time::{Duration, Instant},
 };
 use tokio::{
-    sync::watch,
+    sync::{mpsc, watch},
     time::{interval, sleep, Interval, Sleep},
 };
 
@@ -27,36 +27,38 @@ struct Split {
     got: usize,
 }
 
+#[derive(Debug)]
 struct RecvChan {
     packets: Vec<Option<Vec<u8>>>, // char ** 😛
     splits: HashMap<u16, Split>,
     seqnum: u16,
 }
 
-pub struct RudpReceiver<P: UdpPeer> {
-    pub(crate) share: Arc<RudpShare<P>>,
+#[derive(Debug)]
+pub struct Worker<S: UdpSender, R: UdpReceiver> {
+    sender: Arc<Sender<S>>,
     chans: [RecvChan; NUM_CHANS],
-    udp: P::Receiver,
+    input: R,
     close: watch::Receiver<bool>,
-    closed: bool,
     resend: Interval,
     ping: Interval,
     cleanup: Interval,
     timeout: Pin<Box<Sleep>>,
-    queue: VecDeque<Result<Pkt<'static>>>,
+    output: mpsc::UnboundedSender<Result<Pkt<'static>>>,
 }
 
-impl<P: UdpPeer> RudpReceiver<P> {
+impl<S: UdpSender, R: UdpReceiver> Worker<S, R> {
     pub(crate) fn new(
-        udp: P::Receiver,
-        share: Arc<RudpShare<P>>,
+        input: R,
         close: watch::Receiver<bool>,
+        sender: Arc<Sender<S>>,
+        output: mpsc::UnboundedSender<Result<Pkt<'static>>>,
     ) -> Self {
         Self {
-            udp,
-            share,
+            input,
+            sender,
             close,
-            closed: false,
+            output,
             resend: interval(Duration::from_millis(500)),
             ping: interval(Duration::from_secs(PING_TIMEOUT)),
             cleanup: interval(Duration::from_secs(TIMEOUT)),
@@ -66,42 +68,33 @@ impl<P: UdpPeer> RudpReceiver<P> {
                 seqnum: INIT_SEQNUM,
                 splits: HashMap::new(),
             }),
-            queue: VecDeque::new(),
         }
     }
 
-    fn handle_err(&mut self, res: Result<()>) -> Result<()> {
+    pub async fn run(mut self) {
         use Error::*;
-
-        match res {
-            Err(RemoteDisco(_)) | Err(LocalDisco) => {
-                self.closed = true;
-                res
-            }
-            Ok(_) => res,
-            Err(e) => {
-                self.queue.push_back(Err(e));
-                Ok(())
-            }
-        }
-    }
-
-    pub async fn recv(&mut self) -> Option<Result<Pkt<'static>>> {
-        use Error::*;
-
-        if self.closed {
-            return None;
-        }
 
         loop {
-            if let Some(x) = self.queue.pop_front() {
-                return Some(x);
-            }
-
             tokio::select! {
                 _ = self.close.changed() => {
-                    self.closed = true;
-                    return Some(Err(LocalDisco));
+                    self.sender
+                        .send_rudp_type(
+                            PktType::Ctl,
+                            Pkt {
+                                unrel: true,
+                                chan: 0,
+                                data: Cow::Borrowed(&[CtlType::Disco as u8]),
+                            },
+                        )
+                        .await
+                        .ok();
+
+                    self.output.send(Err(LocalDisco)).ok();
+                    break;
+                },
+                _ = &mut self.timeout => {
+                    self.output.send(Err(RemoteDisco(true))).ok();
+                    break;
                 },
                 _ = self.cleanup.tick() => {
                     let timeout = Duration::from_secs(TIMEOUT);
@@ -116,15 +109,15 @@ impl<P: UdpPeer> RudpReceiver<P> {
                     }
                 },
                 _ = self.resend.tick() => {
-                    for chan in self.share.chans.iter() {
+                    for chan in self.sender.chans.iter() {
                         for (_, ack) in chan.lock().await.acks.iter() {
-                            self.share.send_raw(&ack.data).await.ok(); // TODO: handle error (?)
+                            self.sender.send_udp(&ack.data).await.ok();
                         }
                     }
                 },
                 _ = self.ping.tick() => {
-                    self.share
-                        .send(
+                    self.sender
+                        .send_rudp_type(
                             PktType::Ctl,
                             Pkt {
                                 chan: 0,
@@ -135,13 +128,9 @@ impl<P: UdpPeer> RudpReceiver<P> {
                         .await
                         .ok();
                 }
-                _ = &mut self.timeout => {
-                    self.closed = true;
-                    return Some(Err(RemoteDisco(true)));
-                },
-                pkt = self.udp.recv() => {
+                pkt = self.input.recv() => {
                     if let Err(e) = self.handle_pkt(pkt).await {
-                        return Some(Err(e));
+                        self.output.send(Err(e)).ok();
                     }
                 }
             }
@@ -169,10 +158,7 @@ impl<P: UdpPeer> RudpReceiver<P> {
             return Err(InvalidChannel(chan));
         }
 
-        let res = self.process_pkt(cursor, true, chan).await;
-        self.handle_err(res)?;
-
-        Ok(())
+        self.process_pkt(cursor, true, chan).await
     }
 
     #[async_recursion]
@@ -188,17 +174,13 @@ impl<P: UdpPeer> RudpReceiver<P> {
         match cursor.read_u8()?.try_into()? {
             PktType::Ctl => match cursor.read_u8()?.try_into()? {
                 CtlType::Ack => {
-                    // println!("Ack");
-
                     let seqnum = cursor.read_u16::<BigEndian>()?;
-                    if let Some(ack) = self.share.chans[ch].lock().await.acks.remove(&seqnum) {
+                    if let Some(ack) = self.sender.chans[ch].lock().await.acks.remove(&seqnum) {
                         ack.tx.send(true).ok();
                     }
                 }
                 CtlType::SetPeerID => {
-                    // println!("SetPeerID");
-
-                    let mut id = self.share.remote_id.write().await;
+                    let mut id = self.sender.remote_id.write().await;
 
                     if *id != PeerID::Nil as u16 {
                         return Err(PeerIDAlreadySet);
@@ -206,26 +188,21 @@ impl<P: UdpPeer> RudpReceiver<P> {
 
                     *id = cursor.read_u16::<BigEndian>()?;
                 }
-                CtlType::Ping => {
-                    // println!("Ping");
-                }
+                CtlType::Ping => {}
                 CtlType::Disco => {
-                    // println!("Disco");
                     return Err(RemoteDisco(false));
                 }
             },
             PktType::Orig => {
-                // println!("Orig");
-
-                self.queue.push_back(Ok(Pkt {
-                    chan,
-                    unrel,
-                    data: Cow::Owned(cursor.remaining_slice().into()),
-                }));
+                self.output
+                    .send(Ok(Pkt {
+                        chan,
+                        unrel,
+                        data: Cow::Owned(cursor.remaining_slice().into()),
+                    }))
+                    .ok();
             }
             PktType::Split => {
-                // println!("Split");
-
                 let seqnum = cursor.read_u16::<BigEndian>()?;
                 let chunk_count = cursor.read_u16::<BigEndian>()? as usize;
                 let chunk_index = cursor.read_u16::<BigEndian>()? as usize;
@@ -258,25 +235,25 @@ impl<P: UdpPeer> RudpReceiver<P> {
                 if split.got == chunk_count {
                     let split = self.chans[ch].splits.remove(&seqnum).unwrap();
 
-                    self.queue.push_back(Ok(Pkt {
-                        chan,
-                        unrel,
-                        data: split
-                            .chunks
-                            .into_iter()
-                            .map(|x| x.unwrap())
-                            .reduce(|mut a, mut b| {
-                                a.append(&mut b);
-                                a
-                            })
-                            .unwrap_or_default()
-                            .into(),
-                    }));
+                    self.output
+                        .send(Ok(Pkt {
+                            chan,
+                            unrel,
+                            data: split
+                                .chunks
+                                .into_iter()
+                                .map(|x| x.unwrap())
+                                .reduce(|mut a, mut b| {
+                                    a.append(&mut b);
+                                    a
+                                })
+                                .unwrap_or_default()
+                                .into(),
+                        }))
+                        .ok();
                 }
             }
             PktType::Rel => {
-                // println!("Rel");
-
                 let seqnum = cursor.read_u16::<BigEndian>()?;
                 self.chans[ch].packets[to_seqnum(seqnum)].replace(cursor.remaining_slice().into());
 
@@ -284,8 +261,8 @@ impl<P: UdpPeer> RudpReceiver<P> {
                 ack_data.write_u8(CtlType::Ack as u8)?;
                 ack_data.write_u16::<BigEndian>(seqnum)?;
 
-                self.share
-                    .send(
+                self.sender
+                    .send_rudp_type(
                         PktType::Ctl,
                         Pkt {
                             chan,
@@ -297,8 +274,10 @@ impl<P: UdpPeer> RudpReceiver<P> {
 
                 let next_pkt = |chan: &mut RecvChan| chan.packets[to_seqnum(chan.seqnum)].take();
                 while let Some(pkt) = next_pkt(&mut self.chans[ch]) {
-                    let res = self.process_pkt(io::Cursor::new(pkt), false, chan).await;
-                    self.handle_err(res)?;
+                    if let Err(e) = self.process_pkt(io::Cursor::new(pkt), false, chan).await {
+                        self.output.send(Err(e)).ok();
+                    }
+
                     self.chans[ch].seqnum = self.chans[ch].seqnum.overflowing_add(1).0;
                 }
             }

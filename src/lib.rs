@@ -4,13 +4,11 @@
 mod client;
 mod common;
 mod error;
-mod recv;
 mod send;
-mod share;
+mod worker;
 
 pub use client::*;
 pub use common::*;
 pub use error::*;
-pub use recv::*;
 pub use send::*;
-pub use share::*;
+pub use worker::*;

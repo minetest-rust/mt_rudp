@@ -103,12 +103,7 @@ impl<S: UdpSender, R: UdpReceiver> Worker<S, R> {
                     let timeout = Duration::from_secs(TIMEOUT);
 
                     for chan in self.chans.iter_mut() {
-                        chan.splits = chan
-                            .splits
-                            .drain_filter(
-                                |_k, v| !matches!(v.timestamp, Some(t) if t.elapsed() < timeout),
-                            )
-                            .collect();
+                        chan.splits.retain(|_, v| !matches!(v.timestamp, Some(t) if t.elapsed() < timeout));
                     }
                 },
                 _ = self.resend.tick() => {

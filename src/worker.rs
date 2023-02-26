@@ -257,8 +257,6 @@ impl<S: UdpSender, R: UdpReceiver> Worker<S, R> {
                 let seqnum = cursor.read_u16::<BigEndian>()?;
                 self.chans[ch].packets[to_seqnum(seqnum)].replace(cursor.remaining_slice().into());
 
-                println!("{seqnum}");
-
                 let mut ack_data = Vec::with_capacity(3);
                 ack_data.write_u8(CtlType::Ack as u8)?;
                 ack_data.write_u16::<BigEndian>(seqnum)?;

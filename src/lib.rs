@@ -1,5 +1,6 @@
 #![feature(cursor_remaining)]
 #![feature(hash_drain_filter)]
+#![feature(int_roundings)]
 
 mod client;
 mod common;

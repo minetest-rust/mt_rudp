@@ -8,7 +8,6 @@ This library is the first piece in a ecosystem of Rust libraries for building se
 
 ## TODO
 
-- implement sending split packets
 - implement server
 - implement reliable window
 - documentation

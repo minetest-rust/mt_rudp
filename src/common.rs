@@ -52,3 +52,17 @@ pub struct Pkt<'a> {
     pub chan: u8,
     pub data: Cow<'a, [u8]>,
 }
+
+impl<'a> Pkt<'a> {
+    pub fn size(&self) -> usize {
+        self.header_size() + self.body_size()
+    }
+
+    pub fn body_size(&self) -> usize {
+        self.data.len()
+    }
+
+    pub fn header_size(&self) -> usize {
+        4 + 2 + 1 + if self.unrel { 0 } else { 1 + 2 } + 1
+    }
+}
